@@ -1,0 +1,159 @@
+apiVersion: platform.example.com/v1alpha1
+kind: WorkerCluster
+metadata:
+  name: dev-cluster
+  namespace: default
+  labels:
+    environment: dev
+    team: platform
+spec:
+  environment: dev
+  
+  cluster:
+    name: dev-worker-cluster
+    version: "1.28"
+    region: us-west-2
+    endpointAccess:
+      public: true
+      private: true
+      publicCidrs:
+      - "0.0.0.0/0"
+    logging:
+      enabled: true
+      types:
+      - api
+      - audit
+      - authenticator
+      - controllerManager
+      - scheduler
+  
+  nodeGroups:
+  - name: main
+    instanceTypes:
+    - t3.medium
+    capacityType: ON_DEMAND
+    scaling:
+      minSize: 1
+      maxSize: 5
+      desiredSize: 2
+    diskSize: 50
+    amiType: AL2_x86_64
+    labels:
+      Environment: dev
+      NodeGroup: main
+      Team: platform
+    taints: []
+  
+  networking:
+    vpcCidr: "10.1.0.0/16"
+    privateSubnets:
+    - "10.1.1.0/24"
+    - "10.1.2.0/24"
+    - "10.1.3.0/24"
+    publicSubnets:
+    - "10.1.101.0/24"
+    - "10.1.102.0/24"
+    - "10.1.103.0/24"
+    enableNatGateway: true
+    enableVpnGateway: false
+  
+  argocd:
+    enabled: true
+    version: "5.51.6"
+    namespace: argocd
+    server:
+      ingress:
+        enabled: true
+        className: alb
+        annotations:
+          kubernetes.io/ingress.class: "alb"
+          alb.ingress.kubernetes.io/scheme: "internet-facing"
+          alb.ingress.kubernetes.io/target-type: "ip"
+          alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+          alb.ingress.kubernetes.io/ssl-redirect: '443'
+      service:
+        type: ClusterIP
+    repositories:
+    - name: app-manifests
+      url: https://github.com/example/app-manifests
+      type: git
+      project: default
+    applications:
+    - name: test-app
+      namespace: default
+      project: default
+      source:
+        repoURL: https://github.com/example/app-manifests
+        path: manifests/dev
+        targetRevision: HEAD
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: default
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+  
+  database:
+    enabled: true
+    engine: postgres
+    engineVersion: "15.4"
+    instanceClass: db.t3.micro
+    storage:
+      allocatedStorage: 20
+      storageType: gp3
+      storageEncrypted: true
+    database:
+      name: devappdb
+      username: devadmin
+    availability:
+      multiAz: false
+      backupRetentionPeriod: 3
+      backupWindow: "03:00-04:00"
+      maintenanceWindow: "sun:04:00-sun:05:00"
+      deletionProtection: false
+      skipFinalSnapshot: true
+    security:
+      publiclyAccessible: false
+      iamDatabaseAuthenticationEnabled: false
+      monitoringInterval: 0
+      performanceInsightsEnabled: false
+    sizing:
+      preset: micro
+  
+  security:
+    podSecurityStandards:
+      enforce: baseline
+      audit: restricted
+      warn: restricted
+    networkPolicies: true
+    secretsEncryption: true
+  
+  monitoring:
+    prometheus:
+      enabled: true
+      namespace: monitoring
+      storageSize: "5Gi"
+    grafana:
+      enabled: true
+      namespace: monitoring
+    logging:
+      enabled: true
+      fluentbit: true
+      cloudwatch: true
+  
+  tags:
+    Environment: dev
+    Team: platform
+    Project: crossplane-k8s-automation
+    CostCenter: engineering
+    Owner: devops-team
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dev-cluster-connection
+  namespace: default
+type: Opaque
+data: {}

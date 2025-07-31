@@ -1,0 +1,161 @@
+apiVersion: platform.example.com/v1alpha1
+kind: WorkerCluster
+metadata:
+  name: staging-cluster
+  namespace: default
+  labels:
+    environment: staging
+    team: platform
+spec:
+  environment: staging
+  
+  cluster:
+    name: staging-worker-cluster
+    version: "1.28"
+    region: us-west-2
+    endpointAccess:
+      public: true
+      private: true
+      publicCidrs:
+      - "10.0.0.0/8"  # More restrictive access for staging
+    logging:
+      enabled: true
+      types:
+      - api
+      - audit
+      - authenticator
+      - controllerManager
+      - scheduler
+  
+  nodeGroups:
+  - name: main
+    instanceTypes:
+    - t3.large
+    capacityType: ON_DEMAND
+    scaling:
+      minSize: 2
+      maxSize: 8
+      desiredSize: 3
+    diskSize: 100
+    amiType: AL2_x86_64
+    labels:
+      Environment: staging
+      NodeGroup: main
+      Team: platform
+    taints: []
+  
+  networking:
+    vpcCidr: "10.2.0.0/16"
+    privateSubnets:
+    - "10.2.1.0/24"
+    - "10.2.2.0/24"
+    - "10.2.3.0/24"
+    publicSubnets:
+    - "10.2.101.0/24"
+    - "10.2.102.0/24"
+    - "10.2.103.0/24"
+    enableNatGateway: true
+    enableVpnGateway: false
+  
+  argocd:
+    enabled: true
+    version: "5.51.6"
+    namespace: argocd
+    server:
+      ingress:
+        enabled: true
+        className: alb
+        annotations:
+          kubernetes.io/ingress.class: "alb"
+          alb.ingress.kubernetes.io/scheme: "internal"  # Internal ALB for staging
+          alb.ingress.kubernetes.io/target-type: "ip"
+          alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
+      service:
+        type: ClusterIP
+    repositories:
+    - name: app-manifests
+      url: https://github.com/PeterZhang2015/crossplaneKubernetes
+      type: git
+      project: default
+    applications:
+    - name: test-app
+      namespace: default
+      project: default
+      source:
+        repoURL: https://github.com/PeterZhang2015/crossplaneKubernetes
+        path: applications/k8s-manifests
+        targetRevision: HEAD
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: default
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+  
+  database:
+    enabled: true
+    engine: postgres
+    engineVersion: "15.4"
+    instanceClass: db.t3.small
+    storage:
+      allocatedStorage: 50
+      maxAllocatedStorage: 100
+      storageType: gp3
+      storageEncrypted: true
+    database:
+      name: stagingappdb
+      username: stagingadmin
+    availability:
+      multiAz: false
+      backupRetentionPeriod: 7
+      backupWindow: "03:00-04:00"
+      maintenanceWindow: "sun:04:00-sun:05:00"
+      deletionProtection: true
+      skipFinalSnapshot: false
+    security:
+      publiclyAccessible: false
+      iamDatabaseAuthenticationEnabled: true
+      monitoringInterval: 60
+      performanceInsightsEnabled: true
+      performanceInsightsRetentionPeriod: 7
+    sizing:
+      preset: small
+  
+  security:
+    podSecurityStandards:
+      enforce: restricted
+      audit: restricted
+      warn: restricted
+    networkPolicies: true
+    secretsEncryption: true
+  
+  monitoring:
+    prometheus:
+      enabled: true
+      namespace: monitoring
+      storageSize: "20Gi"
+    grafana:
+      enabled: true
+      namespace: monitoring
+    logging:
+      enabled: true
+      fluentbit: true
+      cloudwatch: true
+  
+  tags:
+    Environment: staging
+    Team: platform
+    Project: crossplane-k8s-automation
+    CostCenter: engineering
+    Owner: devops-team
+    BackupSchedule: daily
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: staging-cluster-connection
+  namespace: default
+type: Opaque
+data: {}

@@ -1,0 +1,190 @@
+apiVersion: platform.example.com/v1alpha1
+kind: WorkerCluster
+metadata:
+  name: prod-cluster
+  namespace: default
+  labels:
+    environment: prod
+    team: platform
+spec:
+  environment: prod
+  
+  cluster:
+    name: prod-worker-cluster
+    version: "1.28"
+    region: us-west-2
+    endpointAccess:
+      public: false  # Private endpoint only for production
+      private: true
+      publicCidrs: []
+    logging:
+      enabled: true
+      types:
+      - api
+      - audit
+      - authenticator
+      - controllerManager
+      - scheduler
+  
+  nodeGroups:
+  - name: main
+    instanceTypes:
+    - t3.xlarge
+    capacityType: ON_DEMAND
+    scaling:
+      minSize: 3
+      maxSize: 15
+      desiredSize: 5
+    diskSize: 200
+    amiType: AL2_x86_64
+    labels:
+      Environment: prod
+      NodeGroup: main
+      Team: platform
+    taints: []
+  - name: spot
+    instanceTypes:
+    - t3.large
+    - t3.xlarge
+    capacityType: SPOT
+    scaling:
+      minSize: 0
+      maxSize: 10
+      desiredSize: 2
+    diskSize: 100
+    amiType: AL2_x86_64
+    labels:
+      Environment: prod
+      NodeGroup: spot
+      Team: platform
+    taints:
+    - key: "spot-instance"
+      value: "true"
+      effect: "NO_SCHEDULE"
+  
+  networking:
+    vpcCidr: "10.3.0.0/16"
+    privateSubnets:
+    - "10.3.1.0/24"
+    - "10.3.2.0/24"
+    - "10.3.3.0/24"
+    publicSubnets:
+    - "10.3.101.0/24"
+    - "10.3.102.0/24"
+    - "10.3.103.0/24"
+    enableNatGateway: true
+    enableVpnGateway: true  # VPN for production access
+  
+  argocd:
+    enabled: true
+    version: "5.51.6"
+    namespace: argocd
+    server:
+      ingress:
+        enabled: true
+        className: alb
+        annotations:
+          kubernetes.io/ingress.class: "alb"
+          alb.ingress.kubernetes.io/scheme: "internal"
+          alb.ingress.kubernetes.io/target-type: "ip"
+          alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
+          alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:us-west-2:ACCOUNT:certificate/CERT-ID"
+      service:
+        type: ClusterIP
+    repositories:
+    - name: app-manifests
+      url: https://github.com/PeterZhang2015/crossplaneKubernetes
+      type: git
+      project: default
+    applications:
+    - name: test-app
+      namespace: default
+      project: default
+      source:
+        repoURL: https://github.com/PeterZhang2015/crossplaneKubernetes
+        path: applications/k8s-manifests
+        targetRevision: HEAD
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: default
+      syncPolicy:
+        automated:
+          prune: false  # Manual approval for production
+          selfHeal: true
+  
+  database:
+    enabled: true
+    engine: postgres
+    engineVersion: "15.4"
+    instanceClass: db.r5.large
+    storage:
+      allocatedStorage: 200
+      maxAllocatedStorage: 1000
+      storageType: gp3
+      storageEncrypted: true
+      throughput: 500
+    database:
+      name: prodappdb
+      username: prodadmin
+    availability:
+      multiAz: true  # High availability for production
+      backupRetentionPeriod: 30
+      backupWindow: "03:00-04:00"
+      maintenanceWindow: "sun:04:00-sun:05:00"
+      deletionProtection: true
+      skipFinalSnapshot: false
+      finalSnapshotIdentifier: "prod-final-snapshot"
+    security:
+      publiclyAccessible: false
+      iamDatabaseAuthenticationEnabled: true
+      monitoringInterval: 60
+      performanceInsightsEnabled: true
+      performanceInsightsRetentionPeriod: 731  # 2 years retention
+    readReplicas:
+      enabled: true
+      count: 2
+      instanceClass: db.r5.large
+      regions:
+      - us-east-1  # Cross-region replica
+    sizing:
+      preset: large
+  
+  security:
+    podSecurityStandards:
+      enforce: restricted
+      audit: restricted
+      warn: restricted
+    networkPolicies: true
+    secretsEncryption: true
+  
+  monitoring:
+    prometheus:
+      enabled: true
+      namespace: monitoring
+      storageSize: "100Gi"
+    grafana:
+      enabled: true
+      namespace: monitoring
+    logging:
+      enabled: true
+      fluentbit: true
+      cloudwatch: true
+  
+  tags:
+    Environment: prod
+    Team: platform
+    Project: crossplane-k8s-automation
+    CostCenter: engineering
+    Owner: devops-team
+    BackupSchedule: hourly
+    Compliance: required
+    DataClassification: confidential
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: prod-cluster-connection
+  namespace: default
+type: Opaque
+data: {}
