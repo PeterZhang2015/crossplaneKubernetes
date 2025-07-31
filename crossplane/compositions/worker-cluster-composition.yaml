@@ -1,0 +1,922 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: worker-cluster-aws
+  labels:
+    provider: aws
+    service: eks
+    version: v1alpha1
+spec:
+  writeConnectionSecretsToNamespace: crossplane-system
+  
+  compositeTypeRef:
+    apiVersion: platform.example.com/v1alpha1
+    kind: XWorkerCluster
+  
+  resources:
+  # VPC for Worker Cluster
+  - name: vpc
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: VPC
+      spec:
+        forProvider:
+          region: us-west-2
+          cidrBlock: "10.1.0.0/16"
+          enableDnsHostNames: true
+          enableDnsSupport: true
+          tags:
+            Name: "worker-cluster-vpc"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.networking.vpcCidr
+      toFieldPath: spec.forProvider.cidrBlock
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-vpc"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.environment
+      toFieldPath: spec.forProvider.tags.Environment
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tags
+      toFieldPath: spec.forProvider.tags
+      policy:
+        mergeOptions:
+          keepMapValues: true
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.atProvider.id
+      toFieldPath: status.vpcId
+
+  # Internet Gateway
+  - name: internet-gateway
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: InternetGateway
+      spec:
+        forProvider:
+          region: us-west-2
+          tags:
+            Name: "worker-cluster-igw"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-igw"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.environment
+      toFieldPath: spec.forProvider.tags.Environment
+
+  # VPC Gateway Attachment
+  - name: vpc-gateway-attachment
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: VPCGatewayAttachment
+      spec:
+        forProvider:
+          region: us-west-2
+          vpcIdSelector:
+            matchControllerRef: true
+          internetGatewayIdSelector:
+            matchControllerRef: true
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.region
+
+  # Public Subnets
+  - name: public-subnet-1
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: Subnet
+      spec:
+        forProvider:
+          region: us-west-2
+          availabilityZone: us-west-2a
+          cidrBlock: "10.1.101.0/24"
+          vpcIdSelector:
+            matchControllerRef: true
+          mapPublicIPOnLaunch: true
+          tags:
+            Name: "worker-cluster-public-1"
+            "kubernetes.io/role/elb": "1"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.availabilityZone
+      transforms:
+      - type: string
+        string:
+          fmt: "%sa"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.networking.publicSubnets[0]
+      toFieldPath: spec.forProvider.cidrBlock
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-public-1"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags["kubernetes.io/cluster/CLUSTER_NAME"]
+      transforms:
+      - type: string
+        string:
+          fmt: "kubernetes.io/cluster/%s"
+
+  - name: public-subnet-2
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: Subnet
+      spec:
+        forProvider:
+          region: us-west-2
+          availabilityZone: us-west-2b
+          cidrBlock: "10.1.102.0/24"
+          vpcIdSelector:
+            matchControllerRef: true
+          mapPublicIPOnLaunch: true
+          tags:
+            Name: "worker-cluster-public-2"
+            "kubernetes.io/role/elb": "1"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.availabilityZone
+      transforms:
+      - type: string
+        string:
+          fmt: "%sb"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.networking.publicSubnets[1]
+      toFieldPath: spec.forProvider.cidrBlock
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-public-2"
+
+  # Private Subnets
+  - name: private-subnet-1
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: Subnet
+      spec:
+        forProvider:
+          region: us-west-2
+          availabilityZone: us-west-2a
+          cidrBlock: "10.1.1.0/24"
+          vpcIdSelector:
+            matchControllerRef: true
+          tags:
+            Name: "worker-cluster-private-1"
+            "kubernetes.io/role/internal-elb": "1"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.availabilityZone
+      transforms:
+      - type: string
+        string:
+          fmt: "%sa"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.networking.privateSubnets[0]
+      toFieldPath: spec.forProvider.cidrBlock
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-private-1"
+
+  - name: private-subnet-2
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: Subnet
+      spec:
+        forProvider:
+          region: us-west-2
+          availabilityZone: us-west-2b
+          cidrBlock: "10.1.2.0/24"
+          vpcIdSelector:
+            matchControllerRef: true
+          tags:
+            Name: "worker-cluster-private-2"
+            "kubernetes.io/role/internal-elb": "1"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.availabilityZone
+      transforms:
+      - type: string
+        string:
+          fmt: "%sb"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.networking.privateSubnets[1]
+      toFieldPath: spec.forProvider.cidrBlock
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-private-2"
+
+  # NAT Gateway EIP
+  - name: nat-gateway-eip
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: EIP
+      spec:
+        forProvider:
+          region: us-west-2
+          domain: vpc
+          tags:
+            Name: "worker-cluster-nat-eip"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-nat-eip"
+
+  # NAT Gateway
+  - name: nat-gateway
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: NATGateway
+      spec:
+        forProvider:
+          region: us-west-2
+          allocationIdSelector:
+            matchControllerRef: true
+          subnetIdSelector:
+            matchControllerRef: true
+            matchLabels:
+              type: public
+          tags:
+            Name: "worker-cluster-nat"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-nat"
+
+  # Route Tables
+  - name: public-route-table
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: RouteTable
+      spec:
+        forProvider:
+          region: us-west-2
+          vpcIdSelector:
+            matchControllerRef: true
+          tags:
+            Name: "worker-cluster-public-rt"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-public-rt"
+
+  - name: private-route-table
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: RouteTable
+      spec:
+        forProvider:
+          region: us-west-2
+          vpcIdSelector:
+            matchControllerRef: true
+          tags:
+            Name: "worker-cluster-private-rt"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-private-rt"
+
+  # EKS Cluster IAM Role
+  - name: eks-cluster-role
+    base:
+      apiVersion: iam.aws.crossplane.io/v1beta1
+      kind: Role
+      spec:
+        forProvider:
+          assumeRolePolicy: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Service": "eks.amazonaws.com"
+                  },
+                  "Action": "sts:AssumeRole"
+                }
+              ]
+            }
+          tags:
+            Name: "worker-cluster-eks-role"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-eks-role"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-eks-role"
+
+  # EKS Cluster Policy Attachment
+  - name: eks-cluster-policy-attachment
+    base:
+      apiVersion: iam.aws.crossplane.io/v1beta1
+      kind: RolePolicyAttachment
+      spec:
+        forProvider:
+          policyArn: "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+          roleSelector:
+            matchControllerRef: true
+        providerConfigRef:
+          name: default
+
+  # EKS Node Group IAM Role
+  - name: eks-nodegroup-role
+    base:
+      apiVersion: iam.aws.crossplane.io/v1beta1
+      kind: Role
+      spec:
+        forProvider:
+          assumeRolePolicy: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Service": "ec2.amazonaws.com"
+                  },
+                  "Action": "sts:AssumeRole"
+                }
+              ]
+            }
+          tags:
+            Name: "worker-cluster-nodegroup-role"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-nodegroup-role"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-nodegroup-role"
+
+  # Node Group Policy Attachments
+  - name: nodegroup-worker-policy
+    base:
+      apiVersion: iam.aws.crossplane.io/v1beta1
+      kind: RolePolicyAttachment
+      spec:
+        forProvider:
+          policyArn: "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+          roleSelector:
+            matchControllerRef: true
+            matchLabels:
+              type: nodegroup
+        providerConfigRef:
+          name: default
+
+  - name: nodegroup-cni-policy
+    base:
+      apiVersion: iam.aws.crossplane.io/v1beta1
+      kind: RolePolicyAttachment
+      spec:
+        forProvider:
+          policyArn: "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+          roleSelector:
+            matchControllerRef: true
+            matchLabels:
+              type: nodegroup
+        providerConfigRef:
+          name: default
+
+  - name: nodegroup-registry-policy
+    base:
+      apiVersion: iam.aws.crossplane.io/v1beta1
+      kind: RolePolicyAttachment
+      spec:
+        forProvider:
+          policyArn: "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+          roleSelector:
+            matchControllerRef: true
+            matchLabels:
+              type: nodegroup
+        providerConfigRef:
+          name: default
+
+  # EKS Cluster
+  - name: eks-cluster
+    base:
+      apiVersion: eks.aws.crossplane.io/v1beta1
+      kind: Cluster
+      spec:
+        forProvider:
+          region: us-west-2
+          version: "1.28"
+          roleArnSelector:
+            matchControllerRef: true
+            matchLabels:
+              type: cluster
+          resourcesVpcConfig:
+          - subnetIdSelector:
+              matchControllerRef: true
+            endpointConfigPrivateAccess: true
+            endpointConfigPublicAccess: true
+            endpointConfigPublicAccessCidrs:
+            - "0.0.0.0/0"
+          logging:
+          - enable:
+            - api
+            - audit
+            - authenticator
+            - controllerManager
+            - scheduler
+          tags:
+            Name: "worker-cluster"
+        providerConfigRef:
+          name: default
+        writeConnectionSecretToRef:
+          namespace: crossplane-system
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.version
+      toFieldPath: spec.forProvider.version
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags.Name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: metadata.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.endpointAccess.private
+      toFieldPath: spec.forProvider.resourcesVpcConfig[0].endpointConfigPrivateAccess
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.endpointAccess.public
+      toFieldPath: spec.forProvider.resourcesVpcConfig[0].endpointConfigPublicAccess
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.endpointAccess.publicCidrs
+      toFieldPath: spec.forProvider.resourcesVpcConfig[0].endpointConfigPublicAccessCidrs
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.logging.types
+      toFieldPath: spec.forProvider.logging[0].enable
+    - type: FromCompositeFieldPath
+      fromFieldPath: metadata.uid
+      toFieldPath: spec.writeConnectionSecretToRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-cluster"
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.atProvider.endpoint
+      toFieldPath: status.clusterEndpoint
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.atProvider.version
+      toFieldPath: status.clusterVersion
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.atProvider.status
+      toFieldPath: status.clusterStatus
+
+  # EKS Node Group
+  - name: eks-nodegroup-main
+    base:
+      apiVersion: eks.aws.crossplane.io/v1beta1
+      kind: NodeGroup
+      spec:
+        forProvider:
+          region: us-west-2
+          clusterNameSelector:
+            matchControllerRef: true
+          nodeRoleSelector:
+            matchControllerRef: true
+            matchLabels:
+              type: nodegroup
+          subnetIdSelector:
+            matchControllerRef: true
+            matchLabels:
+              type: private
+          instanceTypes:
+          - t3.medium
+          capacityType: ON_DEMAND
+          scalingConfig:
+          - desiredSize: 2
+            maxSize: 10
+            minSize: 1
+          diskSize: 50
+          amiType: AL2_x86_64
+          labels:
+            Environment: dev
+            NodeGroup: main
+          tags:
+            Name: "worker-cluster-main-ng"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups[0].instanceTypes
+      toFieldPath: spec.forProvider.instanceTypes
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups[0].capacityType
+      toFieldPath: spec.forProvider.capacityType
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups[0].scaling.desiredSize
+      toFieldPath: spec.forProvider.scalingConfig[0].desiredSize
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups[0].scaling.maxSize
+      toFieldPath: spec.forProvider.scalingConfig[0].maxSize
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups[0].scaling.minSize
+      toFieldPath: spec.forProvider.scalingConfig[0].minSize
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups[0].diskSize
+      toFieldPath: spec.forProvider.diskSize
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups[0].amiType
+      toFieldPath: spec.forProvider.amiType
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups[0].labels
+      toFieldPath: spec.forProvider.labels
+      policy:
+        mergeOptions:
+          keepMapValues: true
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.environment
+      toFieldPath: spec.forProvider.labels.Environment
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups[0].name
+      toFieldPath: spec.forProvider.labels.NodeGroup
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-main-ng"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups[0].name
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-ng"
+
+  # Kubernetes Provider Config for Worker Cluster
+  - name: kubernetes-provider-config
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha1
+      kind: ProviderConfig
+      spec:
+        credentials:
+          source: Secret
+          secretRef:
+            namespace: crossplane-system
+            name: cluster-connection
+            key: kubeconfig
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-provider-config"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.credentials.secretRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-connection"
+
+  # Helm Provider Config for Worker Cluster
+  - name: helm-provider-config
+    base:
+      apiVersion: helm.crossplane.io/v1beta1
+      kind: ProviderConfig
+      spec:
+        credentials:
+          source: Secret
+          secretRef:
+            namespace: crossplane-system
+            name: cluster-connection
+            key: kubeconfig
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-helm-provider-config"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.credentials.secretRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-connection"
+
+  # ArgoCD Installation in Worker Cluster
+  - name: argocd-namespace
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha1
+      kind: Object
+      spec:
+        forProvider:
+          manifest:
+            apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: argocd
+              labels:
+                name: argocd
+                pod-security.kubernetes.io/enforce: baseline
+                pod-security.kubernetes.io/audit: restricted
+                pod-security.kubernetes.io/warn: restricted
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.argocd.namespace
+      toFieldPath: spec.forProvider.manifest.metadata.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.providerConfigRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-provider-config"
+    readinessChecks:
+    - type: MatchString
+      fieldPath: status.atProvider.manifest.status.phase
+      matchString: "Active"
+
+  # ArgoCD Helm Release in Worker Cluster
+  - name: argocd-helm-release
+    base:
+      apiVersion: helm.crossplane.io/v1beta1
+      kind: Release
+      spec:
+        forProvider:
+          chart:
+            name: argo-cd
+            repository: https://argoproj.github.io/argo-helm
+            version: "5.51.6"
+          namespace: argocd
+          values:
+            global:
+              image:
+                tag: "v2.9.3"
+            server:
+              service:
+                type: LoadBalancer
+                annotations:
+                  service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+                  service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+              config:
+                repositories: |
+                  - name: app-manifests
+                    type: git
+                    url: https://github.com/PeterZhang2015/crossplaneKubernetes
+                application.instanceLabelKey: argocd.argoproj.io/instance
+              extraArgs:
+                - --insecure
+            controller:
+              resources:
+                limits:
+                  cpu: 1000m
+                  memory: 1Gi
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+            repoServer:
+              resources:
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+            redis:
+              enabled: true
+              resources:
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+            applicationSet:
+              enabled: true
+            dex:
+              enabled: false
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.argocd.version
+      toFieldPath: spec.forProvider.chart.version
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.argocd.namespace
+      toFieldPath: spec.forProvider.namespace
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.providerConfigRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-helm-provider-config"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.argocd.repositories[0].url
+      toFieldPath: spec.forProvider.values.server.config.repositories
+      transforms:
+      - type: string
+        string:
+          fmt: |
+            - name: app-manifests
+              type: git
+              url: %s
+    readinessChecks:
+    - type: MatchString
+      fieldPath: status.atProvider.manifest.status.phase
+      matchString: "deployed"
+    
+  # ArgoCD Application for Worker Cluster Apps
+  - name: worker-apps-application
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha1
+      kind: Object
+      spec:
+        forProvider:
+          manifest:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            metadata:
+              name: worker-applications
+              namespace: argocd
+              labels:
+                app.kubernetes.io/name: worker-applications
+                app.kubernetes.io/component: application
+            spec:
+              project: default
+              source:
+                repoURL: https://github.com/PeterZhang2015/crossplaneKubernetes
+                targetRevision: HEAD
+                path: applications/k8s-manifests
+              destination:
+                server: https://kubernetes.default.svc
+                namespace: default
+              syncPolicy:
+                automated:
+                  prune: true
+                  selfHeal: true
+                syncOptions:
+                  - CreateNamespace=true
+                  - ServerSideApply=true
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.argocd.applications[0].source.repoURL
+      toFieldPath: spec.forProvider.manifest.spec.source.repoURL
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.argocd.applications[0].source.path
+      toFieldPath: spec.forProvider.manifest.spec.source.path
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.argocd.applications[0].destination.namespace
+      toFieldPath: spec.forProvider.manifest.spec.destination.namespace
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cluster.name
+      toFieldPath: spec.providerConfigRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-provider-config"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.environment
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-applications"
+    readinessChecks:
+    - type: MatchString
+      fieldPath: status.atProvider.manifest.status.health.status
+      matchString: "Healthy"
+
+  # Connection Secret
+  connectionDetails:
+  - name: kubeconfig
+    fromConnectionSecretKey: kubeconfig
+  - name: endpoint
+    fromFieldPath: status.clusterEndpoint
+  - name: ca-certificate
+    fromConnectionSecretKey: ca-certificate
