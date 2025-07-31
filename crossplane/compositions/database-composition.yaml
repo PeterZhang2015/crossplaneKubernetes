@@ -1,0 +1,404 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: database-aws
+  labels:
+    provider: aws
+    service: rds
+    version: v1alpha1
+spec:
+  writeConnectionSecretsToNamespace: crossplane-system
+  
+  compositeTypeRef:
+    apiVersion: platform.example.com/v1alpha1
+    kind: XDatabase
+  
+  resources:
+  # DB Subnet Group
+  - name: db-subnet-group
+    base:
+      apiVersion: rds.aws.crossplane.io/v1alpha1
+      kind: DBSubnetGroup
+      spec:
+        forProvider:
+          region: us-west-2
+          description: "Database subnet group for worker cluster"
+          tags:
+            Name: "database-subnet-group"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.networking.subnetIds
+      toFieldPath: spec.forProvider.subnetIds
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-subnet-group"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.environment
+      toFieldPath: spec.forProvider.tags.Environment
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tags
+      toFieldPath: spec.forProvider.tags
+      policy:
+        mergeOptions:
+          keepMapValues: true
+
+  # Security Group for Database
+  - name: db-security-group
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: SecurityGroup
+      spec:
+        forProvider:
+          region: us-west-2
+          description: "Security group for RDS database"
+          groupName: "database-sg"
+          tags:
+            Name: "database-sg"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.networking.vpcId
+      toFieldPath: spec.forProvider.vpcId
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.name
+      toFieldPath: spec.forProvider.groupName
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-db-sg"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-db-sg"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.environment
+      toFieldPath: spec.forProvider.tags.Environment
+
+  # Security Group Rules for Database Access
+  - name: db-ingress-rule
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: SecurityGroupRule
+      spec:
+        forProvider:
+          region: us-west-2
+          type: ingress
+          fromPort: 5432
+          toPort: 5432
+          protocol: tcp
+          description: "Database access from application"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.port
+      toFieldPath: spec.forProvider.fromPort
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.port
+      toFieldPath: spec.forProvider.toPort
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.networking.allowedCidrBlocks
+      toFieldPath: spec.forProvider.cidrBlocks
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.networking.allowedSecurityGroups
+      toFieldPath: spec.forProvider.sourceSecurityGroupIds
+
+  # KMS Key for Database Encryption
+  - name: db-kms-key
+    base:
+      apiVersion: kms.aws.crossplane.io/v1alpha1
+      kind: Key
+      spec:
+        forProvider:
+          region: us-west-2
+          description: "KMS key for database encryption"
+          keyUsage: ENCRYPT_DECRYPT
+          keySpec: SYMMETRIC_DEFAULT
+          policy: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "Enable IAM User Permissions",
+                  "Effect": "Allow",
+                  "Principal": {
+                    "AWS": "arn:aws:iam::ACCOUNT_ID:root"
+                  },
+                  "Action": "kms:*",
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "Allow RDS Service",
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Service": "rds.amazonaws.com"
+                  },
+                  "Action": [
+                    "kms:Decrypt",
+                    "kms:GenerateDataKey"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          tags:
+            Name: "database-kms-key"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-kms-key"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.environment
+      toFieldPath: spec.forProvider.tags.Environment
+
+  # Parameter Group
+  - name: db-parameter-group
+    base:
+      apiVersion: rds.aws.crossplane.io/v1alpha1
+      kind: DBParameterGroup
+      spec:
+        forProvider:
+          region: us-west-2
+          family: postgres15
+          description: "Custom parameter group for PostgreSQL"
+          parameters:
+            log_statement: "all"
+            log_min_duration_statement: "1000"
+            shared_preload_libraries: "pg_stat_statements"
+          tags:
+            Name: "database-parameter-group"
+        providerConfigRef:
+          name: default
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.engine
+      toFieldPath: spec.forProvider.family
+      transforms:
+      - type: map
+        map:
+          postgres: "postgres15"
+          mysql: "mysql8.0"
+          mariadb: "mariadb10.6"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-parameter-group"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.environment
+      toFieldPath: spec.forProvider.tags.Environment
+
+  # RDS Instance
+  - name: rds-instance
+    base:
+      apiVersion: rds.aws.crossplane.io/v1alpha1
+      kind: RDSInstance
+      spec:
+        forProvider:
+          region: us-west-2
+          dbInstanceClass: db.t3.micro
+          engine: postgres
+          engineVersion: "15.4"
+          allocatedStorage: 20
+          storageType: gp3
+          storageEncrypted: true
+          dbName: appdb
+          username: dbadmin
+          autoGeneratePassword: true
+          passwordSecretRef:
+            namespace: crossplane-system
+            key: password
+          port: 5432
+          publiclyAccessible: false
+          multiAZ: false
+          backupRetentionPeriod: 7
+          backupWindow: "03:00-04:00"
+          maintenanceWindow: "sun:04:00-sun:05:00"
+          deletionProtection: true
+          skipFinalSnapshot: false
+          dbSubnetGroupNameSelector:
+            matchControllerRef: true
+          vpcSecurityGroupIdSelector:
+            matchControllerRef: true
+          dbParameterGroupNameSelector:
+            matchControllerRef: true
+          kmsKeyIdSelector:
+            matchControllerRef: true
+          monitoringInterval: 60
+          performanceInsightsEnabled: true
+          performanceInsightsRetentionPeriod: 7
+          enabledCloudwatchLogsExports:
+          - postgresql
+          tags:
+            Name: "database-instance"
+        providerConfigRef:
+          name: default
+        writeConnectionSecretToRef:
+          namespace: crossplane-system
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.region
+      toFieldPath: spec.forProvider.region
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.instanceClass
+      toFieldPath: spec.forProvider.dbInstanceClass
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.engine
+      toFieldPath: spec.forProvider.engine
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.engineVersion
+      toFieldPath: spec.forProvider.engineVersion
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.storage.allocatedStorage
+      toFieldPath: spec.forProvider.allocatedStorage
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.storage.maxAllocatedStorage
+      toFieldPath: spec.forProvider.maxAllocatedStorage
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.storage.storageType
+      toFieldPath: spec.forProvider.storageType
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.storage.storageEncrypted
+      toFieldPath: spec.forProvider.storageEncrypted
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.storage.iops
+      toFieldPath: spec.forProvider.iops
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.storage.throughput
+      toFieldPath: spec.forProvider.storageThroughput
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.name
+      toFieldPath: spec.forProvider.dbName
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.username
+      toFieldPath: spec.forProvider.username
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.port
+      toFieldPath: spec.forProvider.port
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.security.publiclyAccessible
+      toFieldPath: spec.forProvider.publiclyAccessible
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.availability.multiAz
+      toFieldPath: spec.forProvider.multiAZ
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.availability.availabilityZone
+      toFieldPath: spec.forProvider.availabilityZone
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.availability.backupRetentionPeriod
+      toFieldPath: spec.forProvider.backupRetentionPeriod
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.availability.backupWindow
+      toFieldPath: spec.forProvider.backupWindow
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.availability.maintenanceWindow
+      toFieldPath: spec.forProvider.maintenanceWindow
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.availability.deletionProtection
+      toFieldPath: spec.forProvider.deletionProtection
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.availability.skipFinalSnapshot
+      toFieldPath: spec.forProvider.skipFinalSnapshot
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.availability.finalSnapshotIdentifier
+      toFieldPath: spec.forProvider.finalSnapshotIdentifier
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.security.monitoringInterval
+      toFieldPath: spec.forProvider.monitoringInterval
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.security.performanceInsightsEnabled
+      toFieldPath: spec.forProvider.performanceInsightsEnabled
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.security.performanceInsightsRetentionPeriod
+      toFieldPath: spec.forProvider.performanceInsightsRetentionPeriod
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.security.iamDatabaseAuthenticationEnabled
+      toFieldPath: spec.forProvider.iamDatabaseAuthenticationEnabled
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.name
+      toFieldPath: spec.forProvider.tags.Name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-instance"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.environment
+      toFieldPath: spec.forProvider.tags.Environment
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tags
+      toFieldPath: spec.forProvider.tags
+      policy:
+        mergeOptions:
+          keepMapValues: true
+    - type: FromCompositeFieldPath
+      fromFieldPath: metadata.uid
+      toFieldPath: spec.forProvider.passwordSecretRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-password"
+    - type: FromCompositeFieldPath
+      fromFieldPath: metadata.uid
+      toFieldPath: spec.writeConnectionSecretToRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-database"
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.atProvider.endpoint
+      toFieldPath: status.endpoint
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.atProvider.port
+      toFieldPath: status.port
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.atProvider.dbInstanceStatus
+      toFieldPath: status.dbInstanceStatus
+
+  # Connection Secret
+  connectionDetails:
+  - name: endpoint
+    fromFieldPath: status.endpoint
+  - name: port
+    fromFieldPath: status.port
+  - name: username
+    fromConnectionSecretKey: username
+  - name: password
+    fromConnectionSecretKey: password
+  - name: database
+    fromConnectionSecretKey: database
+  - name: connection-string
+    type: FromValue
+    value: "postgresql://$(username):$(password)@$(endpoint):$(port)/$(database)"
