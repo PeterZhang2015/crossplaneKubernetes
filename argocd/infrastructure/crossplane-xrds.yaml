@@ -1,0 +1,120 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crossplane-xrds
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: crossplane-xrds
+    app.kubernetes.io/component: infrastructure
+    type: crossplane
+    layer: foundation
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  
+  source:
+    repoURL: https://github.com/PeterZhang2015/crossplaneKubernetes
+    targetRevision: HEAD
+    path: crossplane
+    
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+    
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false  # crossplane-system already exists
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m0s
+        
+  revisionHistoryLimit: 10
+  
+  info:
+    - name: Purpose
+      value: Crossplane XRDs (Composite Resource Definitions)
+    - name: Team
+      value: Platform Engineering
+    - name: Dependencies
+      value: Crossplane Core, AWS Provider
+    - name: Documentation
+      value: https://docs.example.com/crossplane/xrds
+      
+  ignoreDifferences:
+    - group: apiextensions.crossplane.io
+      kind: CompositeResourceDefinition
+      jsonPointers:
+        - /status
+    - group: apiextensions.crossplane.io
+      kind: Composition
+      jsonPointers:
+        - /status
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crossplane-compositions
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: crossplane-compositions
+    app.kubernetes.io/component: infrastructure
+    type: crossplane
+    layer: foundation
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  
+  source:
+    repoURL: https://github.com/PeterZhang2015/crossplaneKubernetes
+    targetRevision: HEAD
+    path: crossplane/compositions
+    
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+    
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m0s
+        
+  revisionHistoryLimit: 10
+  
+  info:
+    - name: Purpose
+      value: Crossplane Compositions (Infrastructure Templates)
+    - name: Team
+      value: Platform Engineering
+    - name: Dependencies
+      value: Crossplane XRDs
+    - name: Documentation
+      value: https://docs.example.com/crossplane/compositions
+      
+  ignoreDifferences:
+    - group: apiextensions.crossplane.io
+      kind: Composition
+      jsonPointers:
+        - /status
+        - /spec/compositeTypeRef/apiVersion
+        - /spec/compositeTypeRef/kind
