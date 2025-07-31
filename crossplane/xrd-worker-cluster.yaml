@@ -1,0 +1,679 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xworkerclusters.platform.example.com
+  labels:
+    provider: aws
+    service: eks
+spec:
+  group: platform.example.com
+  names:
+    kind: XWorkerCluster
+    plural: xworkerclusters
+  claimNames:
+    kind: WorkerCluster
+    plural: workerclusters
+  connectionSecretKeys:
+    - kubeconfig
+    - endpoint
+    - ca-certificate
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              # Environment configuration
+              environment:
+                type: string
+                description: "Environment name (dev, staging, prod)"
+                enum: ["dev", "staging", "prod"]
+                default: "dev"
+              
+              # Cluster configuration
+              cluster:
+                type: object
+                description: "EKS cluster configuration"
+                properties:
+                  name:
+                    type: string
+                    description: "Name of the EKS cluster"
+                    pattern: "^[a-zA-Z][a-zA-Z0-9-]*[a-zA-Z0-9]$"
+                    minLength: 3
+                    maxLength: 63
+                  version:
+                    type: string
+                    description: "Kubernetes version"
+                    enum: ["1.28", "1.29", "1.30"]
+                    default: "1.28"
+                  region:
+                    type: string
+                    description: "AWS region"
+                    default: "us-west-2"
+                  endpointAccess:
+                    type: object
+                    description: "Cluster endpoint access configuration"
+                    properties:
+                      public:
+                        type: boolean
+                        default: true
+                      private:
+                        type: boolean
+                        default: true
+                      publicCidrs:
+                        type: array
+                        items:
+                          type: string
+                        default: ["0.0.0.0/0"]
+                    default:
+                      public: true
+                      private: true
+                      publicCidrs: ["0.0.0.0/0"]
+                  logging:
+                    type: object
+                    description: "Cluster logging configuration"
+                    properties:
+                      enabled:
+                        type: boolean
+                        default: true
+                      types:
+                        type: array
+                        items:
+                          type: string
+                          enum: ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+                        default: ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+                    default:
+                      enabled: true
+                      types: ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+                required:
+                  - name
+                default:
+                  version: "1.28"
+                  region: "us-west-2"
+              
+              # Node group configuration
+              nodeGroups:
+                type: array
+                description: "EKS managed node groups"
+                minItems: 1
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      description: "Node group name"
+                      pattern: "^[a-zA-Z][a-zA-Z0-9-]*[a-zA-Z0-9]$"
+                    instanceTypes:
+                      type: array
+                      description: "EC2 instance types"
+                      items:
+                        type: string
+                      minItems: 1
+                      default: ["t3.medium"]
+                    capacityType:
+                      type: string
+                      description: "Capacity type"
+                      enum: ["ON_DEMAND", "SPOT"]
+                      default: "ON_DEMAND"
+                    scaling:
+                      type: object
+                      description: "Auto scaling configuration"
+                      properties:
+                        minSize:
+                          type: integer
+                          minimum: 0
+                          default: 1
+                        maxSize:
+                          type: integer
+                          minimum: 1
+                          default: 10
+                        desiredSize:
+                          type: integer
+                          minimum: 1
+                          default: 2
+                      required:
+                        - minSize
+                        - maxSize
+                        - desiredSize
+                      default:
+                        minSize: 1
+                        maxSize: 10
+                        desiredSize: 2
+                    diskSize:
+                      type: integer
+                      description: "Root volume size in GB"
+                      minimum: 20
+                      maximum: 1000
+                      default: 50
+                    amiType:
+                      type: string
+                      description: "AMI type"
+                      enum: ["AL2_x86_64", "AL2_x86_64_GPU", "AL2_ARM_64"]
+                      default: "AL2_x86_64"
+                    labels:
+                      type: object
+                      description: "Kubernetes labels"
+                      additionalProperties:
+                        type: string
+                      default: {}
+                    taints:
+                      type: array
+                      description: "Kubernetes taints"
+                      items:
+                        type: object
+                        properties:
+                          key:
+                            type: string
+                          value:
+                            type: string
+                          effect:
+                            type: string
+                            enum: ["NO_SCHEDULE", "NO_EXECUTE", "PREFER_NO_SCHEDULE"]
+                        required:
+                          - key
+                          - effect
+                      default: []
+                  required:
+                    - name
+                default:
+                  - name: "main"
+                    instanceTypes: ["t3.medium"]
+                    capacityType: "ON_DEMAND"
+                    scaling:
+                      minSize: 1
+                      maxSize: 10
+                      desiredSize: 2
+                    diskSize: 50
+                    amiType: "AL2_x86_64"
+              
+              # Networking configuration
+              networking:
+                type: object
+                description: "VPC and networking configuration"
+                properties:
+                  vpcCidr:
+                    type: string
+                    description: "VPC CIDR block"
+                    pattern: "^([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$"
+                    default: "10.1.0.0/16"
+                  privateSubnets:
+                    type: array
+                    description: "Private subnet CIDR blocks"
+                    items:
+                      type: string
+                      pattern: "^([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$"
+                    minItems: 2
+                    default: ["10.1.1.0/24", "10.1.2.0/24", "10.1.3.0/24"]
+                  publicSubnets:
+                    type: array
+                    description: "Public subnet CIDR blocks"
+                    items:
+                      type: string
+                      pattern: "^([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$"
+                    minItems: 2
+                    default: ["10.1.101.0/24", "10.1.102.0/24", "10.1.103.0/24"]
+                  enableNatGateway:
+                    type: boolean
+                    description: "Enable NAT Gateway for private subnets"
+                    default: true
+                  enableVpnGateway:
+                    type: boolean
+                    description: "Enable VPN Gateway"
+                    default: false
+                default:
+                  vpcCidr: "10.1.0.0/16"
+                  privateSubnets: ["10.1.1.0/24", "10.1.2.0/24", "10.1.3.0/24"]
+                  publicSubnets: ["10.1.101.0/24", "10.1.102.0/24", "10.1.103.0/24"]
+                  enableNatGateway: true
+                  enableVpnGateway: false
+              
+              # ArgoCD configuration
+              argocd:
+                type: object
+                description: "ArgoCD installation and configuration"
+                properties:
+                  enabled:
+                    type: boolean
+                    description: "Enable ArgoCD installation"
+                    default: true
+                  version:
+                    type: string
+                    description: "ArgoCD Helm chart version"
+                    default: "5.51.6"
+                  namespace:
+                    type: string
+                    description: "ArgoCD namespace"
+                    default: "argocd"
+                  server:
+                    type: object
+                    description: "ArgoCD server configuration"
+                    properties:
+                      ingress:
+                        type: object
+                        properties:
+                          enabled:
+                            type: boolean
+                            default: true
+                          className:
+                            type: string
+                            default: "alb"
+                          annotations:
+                            type: object
+                            additionalProperties:
+                              type: string
+                            default:
+                              kubernetes.io/ingress.class: "alb"
+                              alb.ingress.kubernetes.io/scheme: "internet-facing"
+                              alb.ingress.kubernetes.io/target-type: "ip"
+                        default:
+                          enabled: true
+                          className: "alb"
+                      service:
+                        type: object
+                        properties:
+                          type:
+                            type: string
+                            enum: ["ClusterIP", "NodePort", "LoadBalancer"]
+                            default: "ClusterIP"
+                        default:
+                          type: "ClusterIP"
+                    default:
+                      ingress:
+                        enabled: true
+                        className: "alb"
+                      service:
+                        type: "ClusterIP"
+                  repositories:
+                    type: array
+                    description: "Git repositories for ArgoCD"
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        url:
+                          type: string
+                        type:
+                          type: string
+                          enum: ["git", "helm"]
+                          default: "git"
+                        project:
+                          type: string
+                          default: "default"
+                      required:
+                        - name
+                        - url
+                    default: []
+                  applications:
+                    type: array
+                    description: "ArgoCD applications to deploy"
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                          default: "default"
+                        project:
+                          type: string
+                          default: "default"
+                        source:
+                          type: object
+                          properties:
+                            repoURL:
+                              type: string
+                            path:
+                              type: string
+                            targetRevision:
+                              type: string
+                              default: "HEAD"
+                          required:
+                            - repoURL
+                            - path
+                        destination:
+                          type: object
+                          properties:
+                            server:
+                              type: string
+                              default: "https://kubernetes.default.svc"
+                            namespace:
+                              type: string
+                              default: "default"
+                          default:
+                            server: "https://kubernetes.default.svc"
+                            namespace: "default"
+                        syncPolicy:
+                          type: object
+                          properties:
+                            automated:
+                              type: object
+                              properties:
+                                prune:
+                                  type: boolean
+                                  default: true
+                                selfHeal:
+                                  type: boolean
+                                  default: true
+                              default:
+                                prune: true
+                                selfHeal: true
+                          default:
+                            automated:
+                              prune: true
+                              selfHeal: true
+                      required:
+                        - name
+                        - source
+                    default: []
+                default:
+                  enabled: true
+                  version: "5.51.6"
+                  namespace: "argocd"
+              
+              # Database configuration
+              database:
+                type: object
+                description: "RDS database configuration"
+                properties:
+                  enabled:
+                    type: boolean
+                    description: "Enable RDS database"
+                    default: false
+                  engine:
+                    type: string
+                    description: "Database engine"
+                    enum: ["postgres", "mysql"]
+                    default: "postgres"
+                  engineVersion:
+                    type: string
+                    description: "Database engine version"
+                    default: "15.4"
+                  instanceClass:
+                    type: string
+                    description: "RDS instance class"
+                    default: "db.t3.micro"
+                  allocatedStorage:
+                    type: integer
+                    description: "Allocated storage in GB"
+                    minimum: 20
+                    maximum: 1000
+                    default: 20
+                  storageType:
+                    type: string
+                    description: "Storage type"
+                    enum: ["gp2", "gp3", "io1"]
+                    default: "gp3"
+                  multiAz:
+                    type: boolean
+                    description: "Enable Multi-AZ deployment"
+                    default: false
+                  backupRetentionPeriod:
+                    type: integer
+                    description: "Backup retention period in days"
+                    minimum: 0
+                    maximum: 35
+                    default: 7
+                  backupWindow:
+                    type: string
+                    description: "Backup window"
+                    default: "03:00-04:00"
+                  maintenanceWindow:
+                    type: string
+                    description: "Maintenance window"
+                    default: "sun:04:00-sun:05:00"
+                  deletionProtection:
+                    type: boolean
+                    description: "Enable deletion protection"
+                    default: true
+                  storageEncrypted:
+                    type: boolean
+                    description: "Enable storage encryption"
+                    default: true
+                default:
+                  enabled: false
+                  engine: "postgres"
+                  engineVersion: "15.4"
+                  instanceClass: "db.t3.micro"
+                  allocatedStorage: 20
+                  storageType: "gp3"
+                  multiAz: false
+                  backupRetentionPeriod: 7
+                  deletionProtection: true
+                  storageEncrypted: true
+              
+              # Security configuration
+              security:
+                type: object
+                description: "Security configuration"
+                properties:
+                  podSecurityStandards:
+                    type: object
+                    properties:
+                      enforce:
+                        type: string
+                        enum: ["privileged", "baseline", "restricted"]
+                        default: "baseline"
+                      audit:
+                        type: string
+                        enum: ["privileged", "baseline", "restricted"]
+                        default: "restricted"
+                      warn:
+                        type: string
+                        enum: ["privileged", "baseline", "restricted"]
+                        default: "restricted"
+                    default:
+                      enforce: "baseline"
+                      audit: "restricted"
+                      warn: "restricted"
+                  networkPolicies:
+                    type: boolean
+                    description: "Enable network policies"
+                    default: true
+                  secretsEncryption:
+                    type: boolean
+                    description: "Enable secrets encryption at rest"
+                    default: true
+                default:
+                  podSecurityStandards:
+                    enforce: "baseline"
+                    audit: "restricted"
+                    warn: "restricted"
+                  networkPolicies: true
+                  secretsEncryption: true
+              
+              # Monitoring configuration
+              monitoring:
+                type: object
+                description: "Monitoring and observability configuration"
+                properties:
+                  prometheus:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                        default: true
+                      namespace:
+                        type: string
+                        default: "monitoring"
+                      storageSize:
+                        type: string
+                        default: "10Gi"
+                    default:
+                      enabled: true
+                      namespace: "monitoring"
+                      storageSize: "10Gi"
+                  grafana:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                        default: true
+                      namespace:
+                        type: string
+                        default: "monitoring"
+                    default:
+                      enabled: true
+                      namespace: "monitoring"
+                  logging:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                        default: true
+                      fluentbit:
+                        type: boolean
+                        default: true
+                      cloudwatch:
+                        type: boolean
+                        default: true
+                    default:
+                      enabled: true
+                      fluentbit: true
+                      cloudwatch: true
+                default:
+                  prometheus:
+                    enabled: true
+                    namespace: "monitoring"
+                  grafana:
+                    enabled: true
+                    namespace: "monitoring"
+                  logging:
+                    enabled: true
+                    fluentbit: true
+                    cloudwatch: true
+              
+              # Tags
+              tags:
+                type: object
+                description: "Additional tags for AWS resources"
+                additionalProperties:
+                  type: string
+                default: {}
+            
+            required:
+              - cluster
+              - nodeGroups
+            
+            # Default values for the entire spec
+            default:
+              environment: "dev"
+              cluster:
+                version: "1.28"
+                region: "us-west-2"
+              nodeGroups:
+                - name: "main"
+                  instanceTypes: ["t3.medium"]
+                  scaling:
+                    minSize: 1
+                    maxSize: 10
+                    desiredSize: 2
+              networking:
+                vpcCidr: "10.1.0.0/16"
+                privateSubnets: ["10.1.1.0/24", "10.1.2.0/24", "10.1.3.0/24"]
+                publicSubnets: ["10.1.101.0/24", "10.1.102.0/24", "10.1.103.0/24"]
+              argocd:
+                enabled: true
+              database:
+                enabled: false
+          
+          status:
+            type: object
+            properties:
+              # Cluster status
+              clusterStatus:
+                type: string
+                description: "EKS cluster status"
+              clusterEndpoint:
+                type: string
+                description: "EKS cluster endpoint"
+              clusterVersion:
+                type: string
+                description: "EKS cluster version"
+              
+              # Node group status
+              nodeGroupsStatus:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    status:
+                      type: string
+                    capacity:
+                      type: object
+                      properties:
+                        desired:
+                          type: integer
+                        running:
+                          type: integer
+                        ready:
+                          type: integer
+              
+              # ArgoCD status
+              argocdStatus:
+                type: object
+                properties:
+                  installed:
+                    type: boolean
+                  version:
+                    type: string
+                  endpoint:
+                    type: string
+              
+              # Database status
+              databaseStatus:
+                type: object
+                properties:
+                  created:
+                    type: boolean
+                  endpoint:
+                    type: string
+                  status:
+                    type: string
+              
+              # Overall conditions
+              conditions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                    lastTransitionTime:
+                      type: string
+                      format: date-time
+                    reason:
+                      type: string
+                    message:
+                      type: string
+    additionalPrinterColumns:
+    - name: Environment
+      type: string
+      jsonPath: .spec.environment
+    - name: Cluster
+      type: string
+      jsonPath: .spec.cluster.name
+    - name: Region
+      type: string
+      jsonPath: .spec.cluster.region
+    - name: ArgoCD
+      type: boolean
+      jsonPath: .spec.argocd.enabled
+    - name: Database
+      type: boolean
+      jsonPath: .spec.database.enabled
+    - name: Status
+      type: string
+      jsonPath: .status.clusterStatus
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
