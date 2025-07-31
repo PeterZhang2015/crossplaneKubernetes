@@ -1,0 +1,29 @@
+# Copy this file to terraform.tfvars and customize the values
+
+# General Configuration
+aws_region   = "us-west-2"
+environment  = "dev"
+project_name = "crossplane-k8s-automation"
+
+# EKS Configuration
+cluster_name                = "crossplane-management-cluster"
+cluster_version            = "1.28"
+node_group_instance_types  = ["t3.medium"]
+node_group_desired_size    = 2
+node_group_max_size        = 4
+node_group_min_size        = 1
+
+# VPC Configuration
+vpc_cidr        = "10.0.0.0/16"
+private_subnets = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
+public_subnets  = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
+
+# Crossplane Configuration
+crossplane_namespace     = "crossplane-system"
+crossplane_chart_version = "1.14.5"
+
+# Additional Tags
+additional_tags = {
+  Owner = "DevOps Team"
+  Cost  = "Infrastructure"
+}
