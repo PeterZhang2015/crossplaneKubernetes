@@ -371,8 +371,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-- **Issues**: Report bugs and request features via [GitHub Issues](https://github.com/example/crossplane-k8s-automation/issues)
-- **Discussions**: Join the community discussion on [GitHub Discussions](https://github.com/example/crossplane-k8s-automation/discussions)
+- **Issues**: Report bugs and request features via [GitHub Issues](https://github.com/PeterZhang2015/crossplaneKubernetes/issues)
+- **Discussions**: Join the community discussion on [GitHub Discussions](https://github.com/PeterZhang2015/crossplaneKubernetes/discussions)
 - **Documentation**: Check the comprehensive documentation in the `docs/` folder
 - **Examples**: Explore example configurations in `argocd/examples/`
 

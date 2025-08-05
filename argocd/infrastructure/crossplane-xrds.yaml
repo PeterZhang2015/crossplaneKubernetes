@@ -47,7 +47,7 @@ spec:
     - name: Dependencies
       value: Crossplane Core, AWS Provider
     - name: Documentation
-      value: https://docs.example.com/crossplane/xrds
+      value: https://github.com/PeterZhang2015/crossplaneKubernetes/blob/main/docs/crossplane/xrds.md
       
   ignoreDifferences:
     - group: apiextensions.crossplane.io
@@ -109,7 +109,7 @@ spec:
     - name: Dependencies
       value: Crossplane XRDs
     - name: Documentation
-      value: https://docs.example.com/crossplane/compositions
+      value: https://github.com/PeterZhang2015/crossplaneKubernetes/blob/main/docs/crossplane/compositions.md
       
   ignoreDifferences:
     - group: apiextensions.crossplane.io

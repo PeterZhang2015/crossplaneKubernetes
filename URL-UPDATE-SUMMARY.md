@@ -8,9 +8,9 @@
 ## 📝 **URLs Updated**
 
 ### **Replaced Placeholders**
-- ❌ `https://github.com/YOUR-USERNAME/crossplaneKubernetes` 
-- ❌ `https://github.com/example/crossplane-k8s-manifests`
-- ❌ `https://github.com/example/app-manifests`
+- ✅ `https://github.com/YOUR-USERNAME/crossplaneKubernetes` 
+- ✅ `https://github.com/example/crossplane-k8s-manifests`
+- ✅ `https://github.com/example/app-manifests`
 
 ### **With Correct URL**
 - ✅ `https://github.com/PeterZhang2015/crossplaneKubernetes`

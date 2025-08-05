@@ -22,7 +22,7 @@ metadata:
     alb.ingress.kubernetes.io/tags: Environment=dev,Application=test-app
 spec:
   rules:
-  - host: test-app.example.com
+  - host: test-app.peterzhang2015.dev
     http:
       paths:
       - path: /api
@@ -41,7 +41,7 @@ spec:
               number: 80
   tls:
   - hosts:
-    - test-app.example.com
+    - test-app.peterzhang2015.dev
     secretName: test-app-tls
 
 ---

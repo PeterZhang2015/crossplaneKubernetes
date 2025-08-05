@@ -75,7 +75,7 @@ spec:
         type: ClusterIP
     repositories:
     - name: app-manifests
-      url: https://github.com/example/app-manifests
+      url: https://github.com/PeterZhang2015/crossplaneKubernetes
       type: git
       project: default
     applications:
@@ -83,7 +83,7 @@ spec:
       namespace: default
       project: default
       source:
-        repoURL: https://github.com/example/app-manifests
+        repoURL: https://github.com/PeterZhang2015/crossplaneKubernetes
         path: manifests/dev
         targetRevision: HEAD
       destination:

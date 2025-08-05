@@ -136,7 +136,7 @@ variable "git_token" {
 variable "domain_name" {
   description = "Domain name for ArgoCD ingress"
   type        = string
-  default     = "example.com"
+  default     = "peterzhang2015.dev"
 }
 
 # OIDC Configuration
